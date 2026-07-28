@@ -2,9 +2,12 @@ name: PR Review Agent
 on:
   issue_comment:
     types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened]
 jobs:
-  review:
-    if: contains(github.event.comment.body, '/review')
+  # On-demand review via /review comment
+  review-on-command:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '/review')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,3 +31,37 @@ jobs:
               issue_number: context.issue.number,
               body: review
             });
+
+  # Automatic review on new PR / push
+  review-auto:
+    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Run PR Review (Auto)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          python skills/pr-reviewer/pr_review.py --pr "$PR_URL" > review.md
+          cat review.md
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('review.md', 'utf8');
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: review
+            });
+      - name: Post JSON Summary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          python skills/pr-reviewer/pr_review.py --pr "$PR_URL" --json > review.json
+          echo "Quality Score: $(python -c "import json; print(json.load(open('review.json'))['quality_score'])")/100" >> $GITHUB_STEP_SUMMARY
