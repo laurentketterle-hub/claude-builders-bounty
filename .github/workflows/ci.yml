@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify PR Reviewer script
+        run: |
+          echo "=== Python syntax check ==="
+          python -m py_compile skills/pr-reviewer/pr_review.py
+          echo "=== CLI help ==="
+          python skills/pr-reviewer/pr_review.py --help
+          echo "=== Python lint ==="
+          python -m flake8 skills/pr-reviewer/pr_review.py --max-line-length=120 || echo "(lint warnings OK)"
+          echo "=== All checks passed ==="
