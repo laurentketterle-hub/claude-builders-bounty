@@ -1,0 +1,237 @@
+{
+  "name": "Weekly Dev Summary - n8n + Claude",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 168
+            }
+          ]
+        }
+      },
+      "name": "Weekly Cron (Friday 5pm)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/repos/{{$json.repo_owner}}/{{$json.repo_name}}/commits?since={{$json.since}}&until={{$json.until}}&per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$json.github_token}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        }
+      },
+      "name": "Fetch Commits",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/repos/{{$json.repo_owner}}/{{$json.repo_name}}/issues?state=closed&since={{$json.since}}&per_page=100",
+        "authentication": "genericCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$json.github_token}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        }
+      },
+      "name": "Fetch Closed Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        450,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/repos/{{$json.repo_owner}}/{{$json.repo_name}}/pulls?state=merged&sort=updated&direction=desc&per_page=50",
+        "authentication": "genericCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$json.github_token}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        }
+      },
+      "name": "Fetch Merged PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate and format the data\nconst since = new Date();\nsince.setDate(since.getDate() - 7);\nconst until = new Date();\n\nconst commits = $input.all()[0].json;\nconst issues = $input.all()[1].json;\nconst prs = $input.all()[2].json;\n\n// Filter to this week only\nconst weekAgo = since.toISOString();\nconst filteredCommits = Array.isArray(commits) ? commits.filter(c => c.commit?.author?.date >= weekAgo) : [];\nconst filteredIssues = Array.isArray(issues) ? issues.filter(i => i.closed_at >= weekAgo) : [];\nconst filteredPRs = Array.isArray(prs) ? prs.filter(p => p.merged_at >= weekAgo) : [];\n\nconst summary = {\n  period: `${since.toISOString().split('T')[0]} to ${until.toISOString().split('T')[0]}`,\n  total_commits: filteredCommits.length,\n  unique_authors: [...new Set(filteredCommits.map(c => c.commit?.author?.name).filter(Boolean))],\n  closed_issues: filteredIssues.length,\n  merged_prs: filteredPRs.length\n};\n\nreturn [{json: {summary, commits: filteredCommits.slice(0, 20), issues: filteredIssues, prs: filteredPRs}}];"
+      },
+      "name": "Aggregate Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "sendHeaders": true,
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "{{$json.anthropic_api_key}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "name": "Claude API - Generate Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "webhookUri": "={{$json.discord_webhook_url}}",
+        "text": "={{$json.summary_text}}"
+      },
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.discord",
+      "position": [
+        1050,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Weekly Cron (Friday 5pm)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Commits",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Closed Issues",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Merged PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Commits": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Closed Issues": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Merged PRs": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Aggregate Data": {
+      "main": [
+        [
+          {
+            "node": "Claude API - Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API - Generate Summary": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
