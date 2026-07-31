@@ -71,6 +71,30 @@ The 0-100 score considers:
 2. Set `GITHUB_TOKEN` or `GITLAB_TOKEN` env var (or use the Action)
 3. Run: `python pr_review.py --pr <URL>`
 
+## Testing
+
+```bash
+cd skills/pr-reviewer
+python -m pytest tests/ -v
+```
+
+The test suite covers:
+- URL parsing (GitHub and GitLab URLs)
+- Security pattern detection (SQL injection, XSS, hardcoded secrets, SSL/Debug)
+- Lockfile mismatch detection (package.json, requirements.txt, etc.)
+- Quality score computation (size penalties, risk deductions, test bonuses)
+- Markdown output formatting (risk highlighting, score gauge)
+- End-to-end analysis with mock PR data
+- Edge cases (null body, missing user key, draft PRs)
+
+## Compliance
+
+- ✅ Zero external dependencies — uses only Python stdlib (`json`, `re`, `urllib`)
+- ✅ Multi-platform: GitHub and GitLab support
+- ✅ Machine-readable JSON output for CI/CD integration
+- ✅ Designed for Claude Code skill system
+- ✅ All security patterns documented with messages and remediation hints
+
 ## Sample Outputs
 - `samples/sample-review-tenstorrent.md` — Medium-sized PR (original)
 - `samples/sample-review-small-security.md` — Small PR with security risks

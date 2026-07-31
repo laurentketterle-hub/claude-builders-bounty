@@ -43,6 +43,48 @@ You're in the right place.
 
 ---
 
+## Featured Bounty: PR Reviewer Agent (#4)
+
+The PR Reviewer Agent is an automated code review tool for GitHub and GitLab pull requests.
+
+### What it does
+- Fetches PR/MR data via GitHub or GitLab API
+- Scans diffs for 8 categories of security risks (SQL injection, XSS, hardcoded secrets, race conditions, etc.)
+- Detects dependency integrity issues (lockfile mismatches)
+- Computes a 0-100 quality score based on risk count, PR size, tests, and description quality
+- Outputs structured Markdown or JSON
+
+### Quick Start
+```bash
+# Set your token
+export GITHUB_TOKEN=ghp_xxx
+
+# Review a PR
+python skills/pr-reviewer/pr_review.py --pr https://github.com/owner/repo/pull/123
+
+# Get JSON output for CI/CD
+python skills/pr-reviewer/pr_review.py --pr https://github.com/owner/repo/pull/123 --json
+```
+
+### Security Checks
+| Category | Example Patterns |
+|----------|-----------------|
+| SQL Injection | `DROP TABLE`, DELETE without WHERE, query concatenation |
+| XSS | `innerHTML`, `dangerouslySetInnerHTML`, `eval()` |
+| Hardcoded Secrets | API keys, passwords, tokens in source |
+| SSL/Debug | `verify=False`, `DEBUG=True` in production |
+| Race Conditions | Threads without locks, shared state mutations |
+| Shell Injection | `subprocess` with `shell=True`, `os.system()` |
+| Dependency Integrity | `package.json` updated without `package-lock.json` |
+
+### Testing
+```bash
+cd skills/pr-reviewer
+python -m pytest tests/ -v
+```
+
+---
+
 ## Community
 
 - 🐦 X: [@ClaudeBounty](https://x.com/ClaudeBounty)
