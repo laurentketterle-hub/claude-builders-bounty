@@ -1,18 +1,81 @@
-name: CI
-on: [push, pull_request]
+name: CI — Validate n8n Weekly Dev Summary
+
+on:
+  push:
+    paths:
+      - 'submissions/laurentketterle-hub/n8n-weekly-dev-summary/**'
+  pull_request:
+    paths:
+      - 'submissions/laurentketterle-hub/n8n-weekly-dev-summary/**'
+
 jobs:
-  validate:
+  validate-workflow:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Find submission
+
+      - name: Validate workflow JSON structure
         run: |
-          DIR=$(find submissions -name "validate_workflow.py" -path "*/n8n-weekly-dev-summary/*" | head -1 | xargs dirname)
-          echo "Submission dir: $DIR"
-          cd "$DIR"
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
           python validate_workflow.py
-          echo "README lines: $(wc -l < README.md)"
-          echo "Sample output lines: $(wc -l < sample-output.md)"
+        continue-on-error: false
+
+  check-documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          BASE="submissions/laurentketterle-hub/n8n-weekly-dev-summary"
+          required_files=(
+            "workflow.json"
+            "README.md"
+            "sample-output.md"
+            "validate_workflow.py"
+            "architecture.md"
+            "env.template"
+            "troubleshooting.md"
+          )
+          missing=0
+          for f in "${required_files[@]}"; do
+            if [ ! -f "$BASE/$f" ]; then
+              echo "❌ Missing: $f"
+              missing=1
+            else
+              echo "✅ Found: $f ($(wc -l < "$BASE/$f") lines)"
+            fi
+          done
+          if [ $missing -eq 1 ]; then
+            echo "❌ Some required files are missing"
+            exit 1
+          fi
+          echo "✅ All required files present"
+
+      - name: Check README completeness
+        run: |
+          README="submissions/laurentketterle-hub/n8n-weekly-dev-summary/README.md"
+          sections=("Setup" "Requirements" "Architecture" "Troubleshooting" "Sample Output")
+          for section in "${sections[@]}"; do
+            if grep -qi "$section" "$README"; then
+              echo "✅ README has '$section' section"
+            else
+              echo "⚠️  README missing '$section' section"
+            fi
+          done
+
+      - name: Check JSON validity
+        run: |
+          python -c "
+          import json
+          with open('submissions/laurentketterle-hub/n8n-weekly-dev-summary/workflow.json') as f:
+              wf = json.load(f)
+          nodes = len(wf.get('nodes', []))
+          conns = len(wf.get('connections', {}))
+          print(f'✅ Valid JSON: {nodes} nodes, {conns} connections')
+          assert nodes >= 10, f'Expected >=10 nodes, got {nodes}'
+          "
