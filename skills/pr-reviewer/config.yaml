@@ -1,0 +1,76 @@
+# PR Reviewer Agent Configuration
+# Copy this file to your project and customize settings
+
+# ── Platforms ──
+platforms:
+  github:
+    # Set via GITHUB_TOKEN env var or here
+    token: "${GITHUB_TOKEN}"
+    # API base URL (leave default for github.com)
+    api_base: "https://api.github.com"
+
+  gitlab:
+    # Set via GITLAB_TOKEN env var or here
+    token: "${GITLAB_TOKEN}"
+    # For self-hosted GitLab, change this URL
+    api_base: "https://gitlab.com/api/v4"
+
+# ── Review Tuning ──
+review:
+  # Minimum PR description length (characters) before warning
+  min_description_length: 50
+  # Warn when PR exceeds these thresholds
+  size_warnings:
+    additions: 500
+    deletions: 300
+    files: 10
+  # Quality score baseline (0-100)
+  score_baseline: 70
+  # Points deducted per risk found
+  risk_penalty: 4
+  # Points deducted per suggestion
+  suggestion_penalty: 2
+  # Points added per positive finding
+  positive_bonus: 2
+  # Bonus for including tests
+  test_bonus: 10
+  # Bonus for focused PRs (≤3 files, ≤200 additions)
+  focused_bonus: 10
+
+# ── Security Scanning ──
+security:
+  # Enable specific scan categories
+  scans:
+    sql_injection: true
+    xss: true
+    hardcoded_secrets: true
+    hardcoded_ips: true
+    ssl_debug: true
+    race_conditions: true
+    shell_injection: true
+    lockfile_check: true
+  # Custom patterns to add (regex + message)
+  custom_patterns: []
+  # Example:
+  #   - pattern: "(?i)os\\.system\\(.*user_input"
+  #     message: "User input in os.system() — command injection risk"
+
+# ── Output ──
+output:
+  # Default format: markdown or json
+  default_format: "markdown"
+  # Include quality score gauge in markdown
+  show_score_gauge: true
+  # Show confidence level
+  show_confidence: true
+  # Max findings per category
+  max_findings_per_category: 20
+
+# ── GitHub Action ──
+action:
+  # Auto-review on PR open/sync
+  auto_review: true
+  # Respond to /review comments
+  on_demand_review: true
+  # Label PRs with quality score
+  label_by_score: false
