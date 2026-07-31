@@ -2,17 +2,19 @@
 
 > **Bounty #5 — $200 USD** | Powered by [Opire](https://opire.dev)
 
-A complete, production-ready n8n workflow that generates weekly narrative summaries of GitHub repository activity using the Claude API.
+A complete, production-ready n8n workflow that generates weekly narrative summaries of GitHub repository activity using the Claude API. **13 nodes**, **multi-channel delivery** (Discord + Slack + Email), **bilingual** (EN/FR).
 
 ## 🎯 Features
 
-- **⏰ Weekly Cron** — Runs every Friday at 5 PM UTC
-- **📊 GitHub Integration** — Fetches commits, closed issues, and merged PRs
+- **⏰ Weekly Cron** — Runs every Friday at 5 PM UTC (168h interval)
+- **📊 GitHub Integration** — Fetches commits, closed issues, and merged PRs via 3 parallel API calls
 - **🤖 Claude AI** — Generates natural, narrative summaries (model: `claude-sonnet-4-20250514`)
-- **📨 Multi-Channel Delivery** — Discord, Slack, or Email
-- **🌐 Bilingual** — English (EN) or French (FR) summaries
-- **🛡️ Resilient** — Error handling on every node, continues on API failures
-- **📝 Detailed Output** — Top contributors, standout PRs, issue summaries, narrative
+- **📨 Multi-Channel Delivery** — Discord webhook, Slack (Block Kit), or SMTP Email
+- **🌐 Bilingual** — English (EN) or French (FR) summaries with dedicated prompt templates
+- **🛡️ Resilient** — Error handling (`continueOnFail`) on every API node; pipeline continues on failures
+- **🧪 Fully Testable** — `dry_run.py` simulates the entire workflow without n8n/Docker; fixture mode for CI
+- **✅ Validated** — `validate_workflow.py` checks structure, connections, and semantics; `test_workflow_json.py` has 21+ tests
+- **📝 Detailed Output** — Top contributors, standout PRs, issue summaries, Claude-generated narrative
 
 ## 📋 Requirements
 
@@ -109,6 +111,24 @@ Toggle the **Active** switch — the workflow will now run every Friday at 5 PM 
 └─────────────────┘
 ```
 
+### Node Breakdown (13 nodes)
+
+| # | Node | Type | Purpose |
+|---|------|------|---------|
+| 1 | Weekly Cron (Friday 5pm UTC) | `scheduleTrigger` | Triggers every 168h |
+| 2 | Compute Date Window | `code` | Calculates 7-day `since`/`until` dates |
+| 3 | Fetch Commits | `httpRequest` | `GET /repos/{o}/{r}/commits` |
+| 4 | Fetch Closed Issues | `httpRequest` | `GET /repos/{o}/{r}/issues?state=closed` |
+| 5 | Fetch Merged PRs | `httpRequest` | `GET /repos/{o}/{r}/pulls?state=closed` |
+| 6 | Aggregate & Filter Data | `code` | Merge, dedupe, compute stats |
+| 7 | Build Claude Prompt | `code` | Construct system + user prompts (EN/FR) |
+| 8 | Claude API — Generate Summary | `httpRequest` | `POST api.anthropic.com/v1/messages` |
+| 9 | Format Output | `code` | Discord/Slack/Email formatting |
+| 10 | Send to Discord | `httpRequest` | POST to Discord webhook |
+| 11 | Send to Slack | `httpRequest` | POST to Slack webhook (Block Kit) |
+| 12 | Send Email | `emailSend` | SMTP email delivery |
+| 13 | Log Summary | `code` | Console debug output |
+
 ## 📊 Sample Output
 
 ```
@@ -129,27 +149,38 @@ Toggle the **Active** switch — the workflow will now run every Friday at 5 PM 
 - #335 feat: rate-limiting middleware (@dave)
 
 📝 Narrative
-This week the team shipped the long-awaited OAuth2 integration (PR #342),
-enabling third-party app authentication. Bob fixed a critical race condition
-in the payment confirmation flow. The new rate-limiting middleware went live
-on production, capping API requests at 100/min per IP...
+This week the team shipped the long-awaited OAuth2 integration...
 ```
 
-## 🧪 Validation
+See [`sample-output.md`](sample-output.md) for Discord, Slack (Block Kit), Email, and French examples.
 
-Run the validation script to verify workflow integrity:
+## 🧪 Testing without n8n (dry_run.py)
+
+`dry_run.py` is a faithful Python re-implementation of every Code/HTTP node in the 13-node workflow. It calls the real GitHub REST API and Anthropic Messages API when credentials are present, and falls back to deterministic mock data when they're not — no n8n or Docker required.
 
 ```bash
-python validate_workflow.py
-```
+# 1. Run with defaults (uses fixture mode — no credentials needed)
+python dry_run.py
 
-Expected output:
-```
-✅ Valid workflow: 13 nodes, 12 connections
-✅ Claude API node configured correctly
-✅ Cron trigger present
-✅ All connections reference valid nodes
-✅ Bilingual prompt support (EN/FR)
+# 2. Run with real GitHub data + mock Claude
+python dry_run.py --owner vercel --repo next.js
+
+# 3. Run with real GitHub + real Claude
+export GITHUB_TOKEN=ghp_...
+export ANTHROPIC_API_KEY=sk-ant-...
+python dry_run.py --owner anthropics --repo claude-code
+
+# 4. Bilingual: French output
+python dry_run.py --language FR
+
+# 5. JSON output (all 3 formats: Discord + Slack + Email)
+python dry_run.py --json
+
+# 6. Run the test suite (21+ tests)
+python -m pytest tests/test_workflow_json.py -v
+
+# 7. Validate workflow structure
+python validate_workflow.py
 ```
 
 ## 🔧 Troubleshooting
@@ -162,18 +193,26 @@ Expected output:
 | Discord message truncated | Discord limits to 2000 chars; summary is capped automatically |
 | Timeout on GitHub API | The workflow uses 30s timeouts with `continueOnFail` |
 | Email not sending | Configure SMTP credentials in n8n Email node settings |
+| dry_run.py fails | Run `python dry_run.py --help` first; fixture mode works offline |
 
 ## 📁 Files
 
 ```
 submissions/laurentketterle-hub/n8n-weekly-dev-summary/
-├── workflow.json          # Complete n8n workflow (13 nodes)
-├── README.md              # This file — setup & usage
-├── sample-output.md       # Detailed example output
-├── validate_workflow.py   # CI validation script
-├── architecture.md        # Architecture deep-dive
-├── env.template           # Environment variables template
-└── screenshot.png         # n8n execution screenshot
+├── workflow.json              # Complete n8n workflow (13 nodes)
+├── dry_run.py                 # Python simulator (no n8n required)
+├── validate_workflow.py       # CI validation script
+├── README.md                  # This file — setup & usage
+├── architecture.md            # Architecture deep-dive
+├── sample-output.md           # Detailed example output (all formats)
+├── troubleshooting.md         # Common issues & solutions
+├── env.template               # Environment variables template
+├── examples/
+│   ├── dry_run_log.txt        # Captured output of dry_run.py + tests
+│   └── sample_output.md       # Static example outputs
+└── tests/
+    ├── __init__.py
+    └── test_workflow_json.py  # 21+ structural & semantic tests
 ```
 
 ## 💡 Customization
@@ -182,3 +221,5 @@ submissions/laurentketterle-hub/n8n-weekly-dev-summary/
 - **Different model**: Edit Build Claude Prompt → change `model` field (e.g., `claude-opus-4-20250514`)
 - **Add more repos**: Duplicate the Fetch nodes and add another aggregation branch
 - **Custom prompt**: Edit the `systemPrompt` and `userMessage` templates in Build Claude Prompt
+- **Add channels**: Add another HTTP Request node after Format Output for Telegram, Teams, etc.
+- **Change language**: Set `SUMMARY_LANGUAGE=FR` for French output

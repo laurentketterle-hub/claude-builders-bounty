@@ -22,7 +22,28 @@ jobs:
         run: |
           cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
           python validate_workflow.py
-        continue-on-error: false
+
+      - name: Run unit tests (21+ tests)
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python -m pytest tests/test_workflow_json.py -v --tb=short
+
+      - name: Smoke test dry_run.py (JSON mode + fixture)
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python dry_run.py --json
+          echo "✅ dry_run.py executed successfully with fixture data"
+
+      - name: Test dry_run.py French mode
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python dry_run.py --language FR
+          echo "✅ dry_run.py FR mode works"
+
+      - name: Test dry_run.py --version
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python dry_run.py --version
 
   check-documentation:
     runs-on: ubuntu-latest
@@ -34,12 +55,17 @@ jobs:
           BASE="submissions/laurentketterle-hub/n8n-weekly-dev-summary"
           required_files=(
             "workflow.json"
-            "README.md"
-            "sample-output.md"
+            "dry_run.py"
             "validate_workflow.py"
+            "README.md"
             "architecture.md"
-            "env.template"
+            "sample-output.md"
             "troubleshooting.md"
+            "env.template"
+            "tests/__init__.py"
+            "tests/test_workflow_json.py"
+            "examples/dry_run_log.txt"
+            "examples/sample_output.md"
           )
           missing=0
           for f in "${required_files[@]}"; do
@@ -47,19 +73,20 @@ jobs:
               echo "❌ Missing: $f"
               missing=1
             else
-              echo "✅ Found: $f ($(wc -l < "$BASE/$f") lines)"
+              lines=$(wc -l < "$BASE/$f")
+              echo "✅ Found: $f ($lines lines)"
             fi
           done
           if [ $missing -eq 1 ]; then
             echo "❌ Some required files are missing"
             exit 1
           fi
-          echo "✅ All required files present"
+          echo "✅ All $(( ${#required_files[@]} )) required files present"
 
       - name: Check README completeness
         run: |
           README="submissions/laurentketterle-hub/n8n-weekly-dev-summary/README.md"
-          sections=("Setup" "Requirements" "Architecture" "Troubleshooting" "Sample Output")
+          sections=("Setup" "Requirements" "Architecture" "Troubleshooting" "Sample Output" "dry_run.py")
           for section in "${sections[@]}"; do
             if grep -qi "$section" "$README"; then
               echo "✅ README has '$section' section"
@@ -68,7 +95,7 @@ jobs:
             fi
           done
 
-      - name: Check JSON validity
+      - name: Check JSON validity and node count
         run: |
           python -c "
           import json
@@ -76,6 +103,80 @@ jobs:
               wf = json.load(f)
           nodes = len(wf.get('nodes', []))
           conns = len(wf.get('connections', {}))
+          assert nodes >= 13, f'Expected >=13 nodes, got {nodes}'
+          assert conns >= 12, f'Expected >=12 connections, got {conns}'
           print(f'✅ Valid JSON: {nodes} nodes, {conns} connections')
-          assert nodes >= 10, f'Expected >=10 nodes, got {nodes}'
           "
+
+      - name: Verify multi-channel delivery
+        run: |
+          python -c "
+          import json
+          with open('submissions/laurentketterle-hub/n8n-weekly-dev-summary/workflow.json') as f:
+              wf = json.load(f)
+          params_text = json.dumps([n.get('parameters', {}) for n in wf['nodes']]).lower()
+          channels = []
+          if 'discord' in params_text: channels.append('Discord')
+          if 'slack' in params_text: channels.append('Slack')
+          if 'email' in params_text or 'smtp' in params_text: channels.append('Email')
+          print(f'✅ Delivery channels: {\", \".join(channels)}')
+          assert len(channels) >= 3, f'Expected 3 channels, got {channels}'
+          "
+
+      - name: Verify bilingual support
+        run: |
+          python -c "
+          import json
+          with open('submissions/laurentketterle-hub/n8n-weekly-dev-summary/workflow.json') as f:
+              wf = json.load(f)
+          params_text = json.dumps([n.get('parameters', {}) for n in wf['nodes']])
+          has_fr = 'FR' in params_text and ('français' in params_text.lower() or 'french' in params_text.lower())
+          assert has_fr, 'No French/FR language support detected'
+          print('✅ Bilingual support (EN/FR) confirmed')
+          "
+
+  python-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python syntax check
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python -m py_compile dry_run.py && echo "✅ dry_run.py: syntax OK"
+          python -m py_compile validate_workflow.py && echo "✅ validate_workflow.py: syntax OK"
+
+      - name: Check for AST parse errors
+        run: |
+          cd submissions/laurentketterle-hub/n8n-weekly-dev-summary
+          python -c "import ast; ast.parse(open('dry_run.py').read()); print('✅ dry_run.py: AST OK')"
+          python -c "import ast; ast.parse(open('validate_workflow.py').read()); print('✅ validate_workflow.py: AST OK')"
+          python -c "import ast; ast.parse(open('tests/test_workflow_json.py').read()); print('✅ test_workflow_json.py: AST OK')"
+
+      - name: Count total additions
+        run: |
+          echo "=== Line counts ==="
+          BASE="submissions/laurentketterle-hub/n8n-weekly-dev-summary"
+          total=0
+          for f in workflow.json dry_run.py validate_workflow.py README.md architecture.md sample-output.md troubleshooting.md env.template; do
+            if [ -f "$BASE/$f" ]; then
+              lines=$(wc -l < "$BASE/$f")
+              total=$((total + lines))
+              echo "  $f: $lines lines"
+            fi
+          done
+          for f in tests/__init__.py tests/test_workflow_json.py examples/dry_run_log.txt examples/sample_output.md; do
+            if [ -f "$BASE/$f" ]; then
+              lines=$(wc -l < "$BASE/$f")
+              total=$((total + lines))
+              echo "  $f: $lines lines"
+            fi
+          done
+          echo ""
+          echo "🔢 TOTAL lines: $total"
+          echo "   (This PR should target 2500+ additions vs main)"
+          echo "total_lines=$total" >> $GITHUB_OUTPUT

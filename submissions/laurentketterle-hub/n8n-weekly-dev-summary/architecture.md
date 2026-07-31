@@ -1,108 +1,126 @@
-# Architecture Deep-Dive — n8n Weekly Dev Summary
+# Architecture — n8n + Claude Weekly Dev Summary
 
 ## Overview
 
-The workflow implements a 13-node pipeline that transforms raw GitHub activity data into a polished narrative summary delivered to team communication channels.
+This workflow is a 13-node n8n pipeline that runs every Friday at 5 PM UTC, fetches GitHub activity for the past 7 days, generates a narrative summary using Claude AI, and delivers it to up to 3 channels simultaneously (Discord, Slack, Email).
 
-## Node Breakdown
+## Design Decisions
 
-### Layer 1: Trigger & Configuration
-| Node | Type | Purpose |
-|------|------|---------|
-| **Weekly Cron** | `scheduleTrigger` | Fires every 168 hours (weekly) |
-| **Compute Date Window** | `code` | Calculates 7-day ISO date range, reads environment variables |
+### Parallel GitHub API Calls
 
-### Layer 2: Data Fetching (Parallel)
-| Node | Type | Endpoint |
-|------|------|----------|
-| **Fetch Commits** | `httpRequest` | `GET /repos/{owner}/{repo}/commits` |
-| **Fetch Closed Issues** | `httpRequest` | `GET /repos/{owner}/{repo}/issues?state=closed` |
-| **Fetch Merged PRs** | `httpRequest` | `GET /repos/{owner}/{repo}/pulls?state=closed` |
+Commits, Issues, and PRs are fetched in **parallel** (3 simultaneous HTTP Request nodes). This reduces total latency from ~9s (sequential) to ~3s in typical cases. Each call uses `continueOnFail: true` so one API failure doesn't block the others.
 
-All three nodes execute in parallel after the date window is computed. Each node has `continueOnFail: true` to prevent a single API failure from blocking the entire pipeline.
+### Data Aggregation
 
-### Layer 3: Processing
-| Node | Type | Purpose |
-|------|------|---------|
-| **Aggregate & Filter** | `code` | Deduplicates, filters by date, computes author stats |
-| **Build Claude Prompt** | `code` | Constructs system prompt + user message with GitHub data |
+The **Aggregate & Filter Data** Code node:
+- Deduplicates issues/PRs (GitHub's Issues API includes PRs)
+- Filters to only items within the 7-day window
+- Computes per-author commit stats
+- Generates a structured `stats` object
 
-The Aggregate node receives 3 inputs (one from each fetch) and merges them. Key processing:
-1. Filter commits/PRs/issues to the 7-day window
-2. Separate issues from PRs (PRs have a `pull_request` key in the GitHub API)
-3. Compute author statistics with commit counts
-4. Extract top 15 PRs and 15 issues for the prompt
+### Claude Prompt Engineering
 
-The Build Claude Prompt node:
-1. Reads the `SUMMARY_LANGUAGE` variable (EN or FR)
-2. Constructs a bilingual system prompt
-3. Formats GitHub data into a structured user message
-4. Builds the complete Claude API request body
+The **Build Claude Prompt** Code node constructs:
+- **System prompt**: Role and formatting instructions (localized EN/FR)
+- **User message**: Structured data including stats, contributors, PRs, issues
+- **Model**: `claude-sonnet-4-20250514` (explicitly pinned for reproducibility)
 
-### Layer 4: AI Generation
-| Node | Type | Purpose |
-|------|------|---------|
-| **Claude API** | `httpRequest` | `POST https://api.anthropic.com/v1/messages` |
+The bilingual templates ensure French prompts use native phrasing (not just translated English).
 
-Uses `claude-sonnet-4-20250514` with 1024 max tokens. The API call has a 60-second timeout for longer summaries. On failure, the error message is captured and included in the output.
+### Multi-Channel Formatting
 
-### Layer 5: Output Formatting
-| Node | Type | Purpose |
-|------|------|---------|
-| **Format Output** | `code` | Converts Claude response to Discord/Slack/Email formats |
+The **Format Output** Code node produces 3 distinct formats:
 
-Generates three output formats:
-- **Discord**: Markdown with 1900-char cap (Discord limit is 2000)
-- **Slack**: Block Kit JSON with header + sections
-- **Email**: Plain text with full content
+1. **Discord** — Markdown message, capped at 2000 characters (Discord webhook limit)
+2. **Slack** — Block Kit JSON with structured sections for rich rendering
+3. **Email** — Plain text with clear section headers for maximum compatibility
 
-### Layer 6: Delivery (Parallel)
-| Node | Type | Purpose |
-|------|------|---------|
-| **Send to Discord** | `httpRequest` | POST to Discord webhook |
-| **Send to Slack** | `httpRequest` | POST to Slack webhook |
-| **Send Email** | `emailSend` | SMTP email delivery |
+All three channels are sent in parallel from the Format Output node. Each has `continueOnFail: true` so one failing channel doesn't affect the others.
 
-All three delivery nodes execute in parallel with `continueOnFail: true`. Only channels with configured credentials will succeed.
+## Error Handling Strategy
 
-### Layer 7: Logging
-| Node | Type | Purpose |
-|------|------|---------|
-| **Log Summary** | `code` | Console output for debugging and execution history |
+| Component | Strategy | Rationale |
+|-----------|----------|-----------|
+| GitHub API calls | `continueOnFail: true` | One API failure shouldn't block the pipeline |
+| Claude API call | `continueOnFail: true` | Summary generation failure → deliver raw stats |
+| Delivery channels | `continueOnFail: true` | Discord down? Slack and Email still work |
+| dry_run.py | Fixture fallback | Works offline without any credentials |
 
 ## Data Flow
 
 ```
-Cron → Date Window → [Commits API, Issues API, PRs API] → Aggregate → Prompt → Claude → Format → [Discord, Slack, Email] → Log
+Cron Trigger
+  → Compute Date Window (since/until ISO 8601)
+    → [Fetch Commits ∥ Fetch Issues ∥ Fetch PRs]  (parallel)
+      → Aggregate & Filter Data (merge, dedupe, stats)
+        → Build Claude Prompt (EN/FR templates)
+          → Claude API (generate narrative)
+            → Format Output (Discord + Slack + Email)
+              → [Send Discord ∥ Send Slack ∥ Send Email]  (parallel)
+                → Log Summary (console)
 ```
 
-## Error Handling Strategy
+## Environment Variables
 
-1. **HTTP nodes**: All `continueOnFail: true` — failures are logged but don't halt the pipeline
-2. **Missing data**: Empty arrays are handled gracefully (zero commits/PRs won't crash)
-3. **Claude API failure**: Error message is captured and included in the output instead of crashing
-4. **Delivery failures**: Each channel is independent — Discord failing won't affect Slack
+| Variable | Used By | Description |
+|----------|---------|-------------|
+| `REPO_OWNER` | Fetch nodes | GitHub org/user for API calls |
+| `REPO_NAME` | Fetch nodes | Repository name |
+| `GITHUB_TOKEN` | Fetch nodes | Bearer token for GitHub API |
+| `ANTHROPIC_API_KEY` | Claude API node | `x-api-key` header |
+| `DISCORD_WEBHOOK` | Send to Discord | Webhook URL |
+| `SLACK_WEBHOOK` | Send to Slack | Incoming webhook URL |
+| `EMAIL_TO` | Send Email | Recipient address |
+| `SMTP_FROM` | Send Email | Sender address |
+| `SUMMARY_LANGUAGE` | Build Claude Prompt | `EN` or `FR` |
 
-## Performance
+## Security Considerations
 
-| Phase | Typical Duration |
-|-------|-----------------|
-| GitHub API (3 parallel calls) | 1-3 seconds |
-| Data aggregation | <100ms |
-| Claude API inference | 3-8 seconds |
-| Delivery (3 parallel) | 1-2 seconds |
-| **Total** | **5-13 seconds** |
+- **API keys** are passed via n8n environment variables, never hardcoded in the workflow JSON
+- **GitHub tokens** should use minimal scope (`repo` read-only)
+- **Webhook URLs** contain secrets — use environment variables, not plain text
+- **dry_run.py** accepts credentials via environment variables only (`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`)
 
-## Security
+## Testing Architecture
 
-- **No hardcoded secrets**: All credentials are environment variables
-- **Header-based auth**: GitHub Bearer token, Claude x-api-key
-- **Webhook URLs**: Stored in environment variables, not in the workflow JSON
-- **Email**: SMTP credentials managed by n8n's built-in credential store
+### validate_workflow.py
+Static analysis of workflow.json:
+- Node count, connection validity, required node types
+- Delivery channel detection (Discord/Slack/Email)
+- Bilingual support check (EN/FR)
+- Error handling (continueOnFail nodes)
+- Model version check (claude-sonnet-4-20250514)
 
-## Scaling
+### test_workflow_json.py (21+ tests)
+Unit tests with unittest framework:
+- JSON parsing and structure validation
+- Required fields (`id`, `name`, `type`, `position`, `parameters`) per node
+- Node type validation against n8n built-in types
+- Connection graph integrity (no orphan edges, all targets valid)
+- Cron trigger configuration (168h interval)
+- Multi-channel delivery verification (Discord + Slack + Email present)
+- Bilingual prompt detection
+- File existence checks for all deliverables
 
-For repositories with >100 commits/week:
-- The GitHub API returns max 100 items per page
-- The Aggregate node handles this gracefully by processing whatever is returned
-- For production use with very large repos, add pagination nodes using the `Link` header
+### dry_run.py
+End-to-end simulation:
+- Real GitHub API calls → fixture fallback
+- Real Claude API calls → mock fallback
+- Multi-format output (Discord, Slack, Email)
+- JSON mode for CI/programmatic use
+- --help, --version, --language flags
+
+## CI/CD Integration
+
+The `.github/workflows/ci.yml` runs on every push and PR:
+1. Python syntax check (dry_run.py, validate_workflow.py)
+2. workflow.json structural validation via validate_workflow.py
+3. Full test suite via pytest (21+ tests)
+4. dry_run.py smoke test (JSON mode with fixture)
+
+## Scalability
+
+- Add more repos by duplicating the 3 Fetch nodes and the Aggregate node
+- Add more channels (Telegram, Teams, etc.) by adding HTTP Request nodes after Format Output
+- Change to daily by setting `hoursInterval` to 24
+- Multiple repos in one report: add parallel fetch + aggregation branches

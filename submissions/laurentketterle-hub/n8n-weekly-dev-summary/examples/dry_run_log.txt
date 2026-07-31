@@ -1,0 +1,60 @@
+[dry-run] GitHub fetch failed (URLError: <urlopen error [Errno 11001] getaddrinfo failed>); using fixture.
+      source: fixture
+[2/5] Aggregating & normalising data…
+      stats: {'totalCommits': 5, 'totalIssuesClosed': 3, 'totalPRsMerged': 3, 'uniqueAuthors': 4}
+[3/5] Calling claude-sonnet-4-20250514…
+      source: mock
+[4/5] Formatting output (Discord + Slack + Email)…
+[5/5] Complete!
+
+========================================================================
+─── DISCORD ───
+
+📊 Weekly Dev Digest — 2026-07-25 → 2026-08-01
+
+🔄 5 commits by 4 contributors
+🐛 3 issues closed
+✅ 3 PRs merged
+
+👥 Top Contributors
+1. Alice — 2 commits
+2. Bob — 1 commits
+3. Carol — 1 commits
+4. Dave — 1 commits
+
+🔀 Merged PRs
+- #42 feat: Claude API integration (@Alice)
+- #43 chore: bump deps (@Bob)
+- #44 feat: multi-channel delivery (Discord + Slack + Email) (@Carol)
+
+📝 Narrative
+This week test/test saw 5 commits, 3 issues closed and 3 PRs merged. Active contributors included Alice, Bob, Carol, Dave. (Mock narrative — set ANTHROPIC_API_KEY to call the real claude-sonnet-4-20250514 model.)
+
+─── SLACK (block count) ───
+Blocks: 5
+
+─── EMAIL ───
+Weekly Dev Digest — 2026-07-25 → 2026-08-01
+==================================================
+
+REPOSITORY: test/test
+PERIOD: 2026-07-25 → 2026-08-01
+
+STATISTICS:
+  Commits: 5 by 4 contributors
+  Issues closed: 3
+  PRs merged: 3
+...
+========================================================================
+
+===
+21/21 tests passed (0 errors, 0 failures)
+===
+Tests: test_parses_as_json, test_required_top_level_fields, test_has_minimum_nodes,
+  test_connections_is_dict, test_every_node_has_required_fields, test_node_types_are_supported,
+  test_node_ids_are_unique, test_node_names_are_unique, test_position_is_two_numbers,
+  test_all_connection_sources_are_node_names, test_all_connection_targets_are_node_names,
+  test_workflow_is_connected, test_has_weekly_trigger, test_cron_interval_is_weekly,
+  test_has_github_fetch_nodes, test_has_claude_api_node, test_uses_required_claude_model,
+  test_multi_channel_delivery, test_bilingual_support, test_dry_run_script_parses,
+  test_validate_script_parses
