@@ -1,0 +1,7 @@
+# Claude-related files (keep hook)
+.claude/hooks/blocked.log
+.claude/hooks/errors.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
